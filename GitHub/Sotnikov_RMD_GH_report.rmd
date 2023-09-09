@@ -1,0 +1,33 @@
+---
+title: "RMD report"
+author: "Bogdan Sotnikov"
+date: '2023-09-09'
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      error = FALSE,
+                      warning = FALSE,
+                      message = FALSE,
+                      fig.align = "center")
+
+package_installer <- function(package){
+  if (!require(package, character.only=T, quietly=T)) {
+    install.packages(package, repos = "http://cran.us.r-project.org")
+    library(package, character.only=T)
+  }else{library(package, character.only=T)}
+}
+
+lapply(c("stringr",
+         "glue",
+         "car",
+         "hash",
+         "readr",
+         "readxl"
+         "tidyr",
+         "flextable",
+         "tibble",
+         "ggplot2",
+         "dplyr"), package_installer)
+```
