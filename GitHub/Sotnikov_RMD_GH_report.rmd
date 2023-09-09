@@ -1,0 +1,55 @@
+---
+title: "RMD report"
+author: "Bogdan Sotnikov"
+date: '2023-09-09'
+output: 
+  word_document:
+    toc: yes
+    toc_depth: 5
+toc_title: "Contents"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      error = FALSE,
+                      warning = FALSE,
+                      message = FALSE,
+                      fig.align = "center")
+
+package_installer <- function(package){
+  if (!require(package, character.only=T, quietly=T)) {
+    install.packages(package, repos = "http://cran.us.r-project.org")
+    library(package, character.only=T)
+  }else{library(package, character.only=T)}
+}
+
+lapply(c("stringr",
+         "glue",
+         "car",
+         "hash",
+         "readr",
+         "readxl",
+         "tidyr",
+         "flextable",
+         "tibble",
+         "haven",
+         "knitr",
+         "ggplot2",
+         "dplyr"), package_installer)
+
+se <- function(x){
+  se_mean <- sd(x)/sqrt(length(x))
+  return(se_mean)
+}
+```
+
+```{r}
+blood_tsv <- read_tsv("./data/data_tsv.tsv")
+blood_csv <- read_csv("./data/data_csv.csv")
+blood_csv2 <- read_csv2("./data/data_csv2.csv")
+write_rds(blood_tsv, "./data/data_rds.rds")
+blood <- read_rds("./data/data_rds.rds")
+blood
+```
+
+
