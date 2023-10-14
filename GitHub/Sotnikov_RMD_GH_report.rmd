@@ -33,6 +33,7 @@ lapply(c("stringr",
          "flextable",
          "tibble",
          "haven",
+         "psych",
          "knitr",
          "ggplot2",
          "dplyr"), package_installer)
@@ -42,6 +43,9 @@ se <- function(x){
   return(se_mean)
 }
 ```
+
+
+## Загрузка данных ####
 
 ```{r}
 blood_tsv <- read_tsv("./data/data_tsv.tsv")
@@ -53,3 +57,26 @@ blood
 ```
 
 
+## Детекция расы
+
+Раз пошла такая пьянка и есть "чанки которые правят всеми", то расклассифицируем респондентов по их расе в соответствии с легндариумом Дж.Р.Р. Толкина и средние показатели анализа крови у гномов на первом приеме.
+
+```{r}
+blood <- blood |> 
+  mutate(ID = row_number())
+
+blood |>
+  mutate(`Раса` = case_when(
+    `Рост` < 150 ~ "Хоббит",
+    between(`Рост`, 150, 160) ~ "Гном",
+    between(`Рост`, 160, 170) ~ "Человек",
+    between(`Рост`, 170, 180) ~ "Эльф",
+    `Рост` > 180 ~ "Энт"
+  ) |> as.factor()) |> 
+  filter(`Группа крови` %in% c("A (II)", "B (III)")) |> 
+  select(`Раса`, where(is.numeric) & !contains("E1")) |> 
+  group_by(`Раса`) |> 
+  summarise(across(everything(), mean)) |> 
+  slice_head(prop = 0.5)
+```
+Эозинофилы в норме, аллергические состояния или гельминтозы маловероятны (если приведены проценты, конечно, а не абсолютные значения).

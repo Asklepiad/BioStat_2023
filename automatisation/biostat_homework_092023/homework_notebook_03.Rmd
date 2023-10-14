@@ -1,0 +1,491 @@
+---
+title: "automatization_notebook_03"
+output: word_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+lapply(c("ggplot2", "readr", "psych", "glue", "tibble", "stats", "tidyr", "ggbeeswarm", "stringr", "reshape", "RColorBrewer", "dplyr", "Hmisc", "purrr", "ggcorrplot"), require, character.only=TRUE)
+
+# Функция для подсчета числа теряемых единиц наблюдения при отсеве оных с числом пропущенных значений не меньше, чем n_na.
+n_na_excluded <- function(df, n_na){
+  result <- df %>%
+    slice(which(rowSums(is.na(.)) >= n_na)) %>%
+    nrow
+  return(result)
+}
+
+# Функция для подсчета стандартной ошибки среднего
+se <- function(x){
+  sd(x, na.rm=TRUE)/sqrt(length(x))
+}
+
+# Функция для подсчета границ доверительного интервала
+ci_95 <- function(x){
+  min_95 = mean(x, na.rm=TRUE) - 1.96 * se(x)
+  max_95 = mean(x, na.rm=TRUE) + 1.96 * se(x)
+  return(c(min_95, max_95))
+}
+
+# Функция для построения барплота на заданной переменной
+barCreator <- function(df, x){
+  ggplot(df)+
+    geom_bar(aes(x=pull(df[x]), fill=pull(df[x])))+
+    labs(x = x,
+         y = "value",
+         title = glue("Fig. 4 Number of variable {x} subgroups"),
+         fill = x)+
+    theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size=16),
+        axis.title.x = element_text(size=19),
+        axis.title.y = element_text(size=19),
+        plot.title = element_text(size=20, hjust=0.2),
+        legend.title = element_text(size=21),
+        legend.text = element_text(size=18))
+}
+
+```
+
+# Чтение данных
+
+В вашем варианте нужно использовать датасет framingham.
+
+```{r}
+fram_df <- read_csv("./data/raw/framingham.csv")
+```
+
+# Выведите общее описание данных
+
+Выведем размерность и описание типов переменных. Видно, что многие переменные, должные быть фактором, на самом деле им не являются.
+```{r}
+str(fram_df)
+```
+
+# Очистка данных
+
+1) Уберите переменные, в которых пропущенных значений больше 20% или уберите субъектов со слишком большим количеством пропущенных значений. Или совместите оба варианта. Напишите обоснование, почему вы выбрали тот или иной вариант:
+
+**Обоснование**: В моем случае все было просто: переменных с такой долей NA не было вообще, поэтому я фильровал по единицам наблюдения.
+
+2) Переименуйте переменные в человекочитаемый вид (что делать с пробелами в названиях?);
+
+3) В соответствии с описанием данных приведите переменные к нужному типу (numeric или factor);
+
+4) Отсортируйте данные по возрасту по убыванию;
+
+5) Сохраните в файл outliers.csv субъектов, которые являются выбросами (например, по правилу трёх сигм) — это необязательное задание со звёздочкой;
+
+6) Присвойте получившийся датасет переменной "cleaned_data".
+
+1) Создаем вектор имен потенциально "неприкасаемых переменных"
+```{r}
+fram_df %>%
+  select(which(colSums(is.na(.)) > dim(.)[1] * 0.2)) %>%
+  names
+```
+
+
+Переменных, где число пропущенных значений превышало бы 20% нет, засим не создаем вектор.
+
+Оценим, какое количество и какую долю данных мы теряем при удалении переменных с числом NA равным n.
+```{r}
+excl_vis <-  tibble(col_count = 1:ncol(fram_df),
+                  ou_excl = sapply(col_count, function(x) n_na_excluded(fram_df, x)),
+                  ou_excl_perc = ou_excl/nrow(fram_df))
+```
+
+Построим график того, сколько мы теряем в абсолютных значениях при отсечке в n NA на единицу наблюдения
+
+```{r, fig.width=10,fig.height=7}
+ggplot(excl_vis)+
+  geom_col(aes(x=col_count, y=ou_excl), fill="green", color="black")+
+  geom_path(aes(x=col_count, y=ou_excl), size=0.8)+
+  labs(x = "Threshold of NAs for excluding cases",
+       y = "Number of cases with NAs\n greater or equal threshold",
+       title = "Fig. 1 Number of excluded cases \ndepending of NA numbers in case")+
+  scale_x_continuous(n.breaks = nrow(excl_vis))+
+  theme_bw()+
+  theme(axis.text.x = element_text(size=18),
+        axis.text.y = element_text(size=16),
+        axis.title.x = element_text(size=24),
+        axis.title.y = element_text(size=21),
+        plot.title = element_text(size=25, hjust=0.5))
+```
+
+
+График того, какую долю респондентов мы исключаем при отсечке в n NA на единицу наблюдения
+```{r, fig.width=10,fig.height=7}
+ggplot(excl_vis)+
+  geom_col(aes(x=col_count, y=ou_excl_perc), fill="green", color="black")+
+  geom_path(aes(x=col_count, y=ou_excl_perc), size=0.8)+
+  labs(x = "Threshold of NAs for excluding cases",
+       y = "Fraction of cases with NAs\n greater or equal threshold",
+       title = "Fig. 1 Fraction of excluded cases \ndepending of NA numbers in case")+
+  scale_x_continuous(n.breaks = nrow(excl_vis))+
+  scale_y_continuous(n.breaks = 10, limits = c(0,1))+
+  theme_bw()+
+  theme(axis.text.x = element_text(size=18),
+        axis.text.y = element_text(size=16),
+        axis.title.x = element_text(size=24),
+        axis.title.y = element_text(size=21),
+        plot.title = element_text(size=25, hjust=0.5))
+```
+Видим, что при удалении случаев с одним отсутствующим значением в наблюдениях теряем около 15% оных. При удалении же случаев с двумя и более NA, теряем пренебрижимо малую часть наблюдений. Засим удалим именно их.
+
+
+2-4)
+- На мой взгляд, все текущие переменные выглядят человекочитаемыми. Но чтобы выполнить задание по переименованию, частично расшифрую некоторые аббревиатуры и изменю стиль написания ряда переменных. Логика расшифровки аббревиатур в не вполне очевидных случаях была основана на использовании ссылки на датасет в архиве с домашним заданием. Кроме того, я позволил себе приветси переменную education к факторному типу, хотя в описании датасета на кагл она не значится. Ориентировался на данные [из этого гитхаба](https://github.com/GauravPadawe/Framingham-Heart-Study/blob/master/README.md).
+- На текущий момент все наши данные имеют формат numeric (double). Приведем истинно факторные переменные к факторному же типу.
+
+```{r}
+# Запишем данные в промежуточный файл
+fram_df <- fram_df %>%
+  slice(which(rowSums(is.na(.)) < 2)) %>%  # Убрать единицы наблюдения, где два или больше NA
+  rename(sex=male,   # Переименовать переменные
+         cigarsPerDay = cigsPerDay,
+         bloodPressureDrugs = BPMeds,
+         strokeAnamnesis = prevalentStroke,
+         hypertAnamnesis = prevalentHyp,
+         cholTotal = totChol,
+         sysBloodPressure = sysBP,
+         diaBloodPressure = diaBP,
+         bodyMassIndex = BMI,
+         heartRate = heartRate,
+         tenYearsCHDRisk = TenYearCHD) %>% 
+  mutate(sex = factor(sex,                 # Перевести необходимые переменные в факторы
+                      labels=c("female", "male")), 
+         education = factor(education, 
+                            labels = c("some_high_school", "high_school_GED",
+                                       "some_college_vocational_school", "college")),
+         currentSmoker = factor(currentSmoker, 
+                                 labels=c("no_smoker", "smoker")),
+         bloodPressureDrugs = factor(bloodPressureDrugs, 
+                                       labels=c("no_medications", "medications")),
+         strokeAnamnesis = factor(strokeAnamnesis, 
+                                   labels=c("no_stroke", "stroke")),
+         hypertAnamnesis = factor(hypertAnamnesis, 
+                                   labels=c("no_hypertension", "hypertension")),
+         diabetes = factor(diabetes, 
+                           labels=c("no_diabetes", "diabetes")),
+         tenYearsCHDRisk = factor(tenYearsCHDRisk, labels=c("small_risk", "high_risk"))) %>%
+  arrange(desc(age)) # Отсортировать по возрасту по убыванию
+```
+
+5-6) 
+- Выбросы. Есть мысль, что отсеивать выбросы, не разобравшись в их структуре может быть не очень верно. Но дополнительные баллы не пахнут, засим выделяем их в отдельный датафрейм, но далее работаем с популяцией без выбросов. Использовано правило тех сигм.
+
+```{r}
+outliers <- fram_df %>% 
+  filter(if_any(.cols=is.numeric, .fns=function(x) x > mean(x, na.rm=TRUE) + 3 * sd(x, na.rm=TRUE) | x < mean(x, na.rm=TRUE) - 3 * sd(x, na.rm=TRUE)))
+
+write_csv(outliers, "./outliers.csv")
+
+cleaned_data <- anti_join(fram_df, outliers)
+```
+
+# Сколько осталось переменных?
+
+```{r}
+print(glue("{dim(cleaned_data)[2]} variables retained"))
+```
+
+# Сколько осталось случаев?
+
+```{r}
+print(glue("{dim(cleaned_data)[1]} cases retained"))
+```
+
+# Есть ли в данных идентичные строки?
+
+```{r}
+ifelse(nrow(distinct(cleaned_data)) == dim(cleaned_data)[1], 
+       "There are not any identical rows in dataset", 
+       "There are some identical rows in dataset")
+```
+
+# Сколько всего переменных с пропущенными значениями в данных и сколько пропущенных точек в каждой такой переменной?
+
+```{r}
+vars_with_nas <- cleaned_data %>% 
+  select(which(colSums(is.na(.)) > 0)) %>% 
+  colnames
+
+print(glue("There are {cleaned_data %>%
+  select(vars_with_nas) %>% 
+  summarise(across(everything(), function(x) sum(is.na(x))))} case(s) with NA in {vars_with_nas} "))
+```
+
+# Описательные статистики
+
+## Количественные переменные
+
+1) Рассчитайте для всех количественных переменных для каждой группы (TenYearCHD):
+
+1.1) Количество значений;
+
+1.2) Количество пропущенных значений;
+
+1.3) Среднее;
+
+1.4) Медиану;
+
+1.5) Стандартное отклонение;
+
+1.6) 25% квантиль и 75% квантиль;
+
+1.7) Интерквартильный размах;
+
+1.8) Минимум;
+
+1.9) Максимум;
+
+1.10) 95% ДИ для среднего - задание со звёздочкой.
+
+
+```{r}
+statistics <- list(
+  Counts = ~ length(.x) %>% as.character(),
+  NAs = ~ sum(is.na(.x)) %>% as.character(),
+  Mean = ~ mean(.x, na.rm=TRUE) %>% round(3) %>% as.character(),
+  Median = ~ median(.x, na.rm=TRUE) %>% round(3) %>% as.character(),
+  SD = ~ sd(.x, na.rm=TRUE) %>% round(3) %>% as.character(),
+  Quantiles = ~ paste(round(quantile(.x, probs=c(0.25), na.rm=TRUE), 3), 
+                        round(quantile(.x, probs=c(0.75), na.rm=TRUE), 3), sep="_"),
+  Iqr = ~ IQR(.x, na.rm=TRUE) %>% round(3) %>% as.character(),
+  Min = ~ min(.x, na.rm=TRUE) %>% round(3) %>% as.character(),
+  Max = ~ max(.x, na.rm=TRUE) %>% round(3) %>% as.character(),
+  CI95 = ~ paste(round(mean(.x, na.rm=TRUE) - 1.96 * se(.x), 3),
+                    round(mean(.x, na.rm=TRUE) + 1.96 * se(.x), 3), sep="_")
+)
+```
+
+```{r}
+cleaned_data %>% 
+  group_by(tenYearsCHDRisk) %>% 
+  summarise(across(is.numeric, statistics)) %>% 
+  pivot_longer(!tenYearsCHDRisk) %>% 
+  separate(name, sep="_", into=c("variable", "statistic"))
+```
+## Категориальные переменные
+
+1) Рассчитайте для всех категориальных переменных для каждой группы (TenYearCHD):
+
+1.1) Абсолютное количество;
+
+1.2) Относительное количество внутри группы;
+
+1.3) 95% ДИ для доли внутри группы - задание со звёздочкой.
+
+```{r}
+catStat <- function(df, factorr, grouperr){
+  df %>% 
+    select({{ grouperr }}, variant = {{  factorr }}) %>% 
+    mutate(variant = as.character(variant) %>%  replace_na("no_data") %>% as.factor()) %>% 
+    count({{ grouperr }}, variant) %>% 
+    rename(number = n) %>% 
+    group_by({{ grouperr }}) %>% 
+    mutate(proportionIntoGroup = round(number/sum(number),3),
+           proportionCI = paste(
+             round(binconf(number, sum(number), method = "wilson")[,2], 3),
+             round(binconf(number, sum(number), method = "wilson")[,3], 3),
+             sep="-"),
+           variable = factorr) %>% 
+  relocate(variable, .after=1)
+}
+
+lapply(cleaned_data %>% 
+         select(where(is.factor) & !tenYearsCHDRisk) %>% 
+         colnames, 
+       function(x) catStat(cleaned_data, x, tenYearsCHDRisk)) %>% 
+       do.call(rbind, .) %>% 
+  arrange(tenYearsCHDRisk)
+```
+
+# Визуализация
+
+## Количественные переменные
+
+1) Для каждой количественной переменной сделайте боксплоты по группам. Расположите их либо на отдельных рисунках, либо на одном, но читаемо;
+
+2) Наложите на боксплоты beeplots - задание со звёздочкой.
+
+3) Раскрасьте боксплоты с помощью библиотеки RColorBrewer.
+
+```{r, fig.width=10,fig.height=5}
+cleaned_data_long <- cleaned_data %>% 
+  select(where(is.numeric), tenYearsCHDRisk) %>%
+  pivot_longer(cols=where(is.numeric), names_to = "variable")
+
+ggplot(cleaned_data_long)+
+  geom_boxplot(aes(x=variable, y=value, fill=tenYearsCHDRisk))+
+  scale_fill_brewer(name="10-year risk of CHD",
+                    palette = "Set1",
+                    labels=c("Small risk", "High risk"))+
+  labs(x = "Variable",
+       y = "Value",
+       title = "Fig. 3 Boxplot of numeric variables dividing by 10-year risk")+
+  theme(axis.text.x = element_text(size=16, angle=26),
+      axis.text.y = element_text(size=16),
+      axis.title.x = element_text(size=19),
+      axis.title.y = element_text(size=19),
+      plot.title = element_text(size=20, hjust=0.5),
+      legend.title = element_text(size=21),
+      legend.text = element_text(size=18))
+```
+
+## Категориальные переменные
+
+1) Сделайте подходящие визуализации категориальных переменных. Обоснуйте, почему выбрали именно этот тип.
+
+Для визуализации была выбрана столбчатая диаграмма. Она позволяет адекватно визуализировать количество единиц наблюдения для каждой из категорий фактора.
+
+```{r, fig.width=10,fig.height=5}
+lapply(cleaned_data %>% select(where(is.factor)) %>% colnames, function(x) barCreator(cleaned_data, x))
+```
+
+
+# Статистические оценки
+
+## Проверка на нормальность
+
+1) Оцените каждую переменную на соответствие нормальному распределению с помощью теста Шапиро-Уилка. Какие из переменных являются нормальными и как как вы это поняли?
+
+
+```{r}
+cleaned_data %>% 
+  select(where(is.numeric)) %>% 
+  sapply(., function(x) shapiro.test(x))
+```
+1) По данным теста Шапиро-Уилка в представленных данных нет нормально распределенных переменных. Это ясно из низких уровней p-value (<0.05).
+
+2) Постройте для каждой количественной переменной QQ-плот. Отличаются ли выводы от теста Шапиро-Уилка? Какой метод вы бы предпочли и почему?
+
+```{r}
+cols <- cleaned_data %>% 
+  select(where(is.numeric)) %>% 
+  colnames
+
+qq_plots <- lapply(cols, function(x) ggplot(cleaned_data, aes(sample = pull(cleaned_data[x])))+
+         geom_qq()+
+  stat_qq_line()+
+  labs(x = glue("Ожидаемые квантили\nпеременной {x}"),
+     y = glue("Реальные квантили\nпеременной {x}"))+
+theme_bw()+
+theme(axis.text.x = element_text(size=18),
+      axis.text.y = element_text(size=16),
+      axis.title.x = element_text(size=24),
+      axis.title.y = element_text(size=21),
+      plot.title = element_text(size=25, hjust=0.5)))
+
+qq_plots
+```
+
+На выборках с большим количеством единиц наблюдения тест Шапиро-Уилка склонен чаще отклонять нулевую гипотезу о неотличимости тестируемого распределения от нормального (повышается число ошибок первого рода). Поэтому в данном случае я бы из двух подходов предпочел визуальную оценку квантиль-квантильных графиков: на оных для значений общего холестерола, диастолического давления, ИМТ и ЧСС хвосты графиков не очень сильно отклоняются от должных значений. Вместе с тем, визуальная оценка имеет недостатком то, что она, собственно, менее формальна и отчасти зависит от субъективного восприятия, чувства прекрасного и опыта человека, анализирующего ее.
+
+3) Ниже напишите, какие ещё методы проверки на нормальность вы знаете и какие у них есть ограничения.
+
+Тест Колмогорова-Смирнова -- еще один формальный подход, сравнивающий данное распределение с неким заранее заданным (в нашем случае -- нормальным). На маленьких выборках (условно -- меньше 100 единиц наблюдения) склонен реже отвергать нулевую гипотезу (повышенное количество ошибок второго рода).
+
+Построение гистограмм распределения (или функций плотности вероятности) -- другой визуальный подход. Можно (и, пожалуй, нужно) комбинировать его с наложением кривой плотности вероятности нормального распределения. Как визуальный метод страдает от повышенной субъективизации оценки. В варианте с гистограммой на восприятие также может влиять такой параметр, как число столбцов.
+
+## Сравнение групп
+
+1) Сравните группы (переменная **TenYearCHD**) по каждой переменной (как количественной, так и категориальной). Для каждой переменной выберите нужный критерий и кратко обоснуйте его выбор в комментариях.
+
+1) Все количественные переменные будут сравниваться t-тестом Стьюдента. Не воспроизведу глубокие математические причины, но бытует мнение, что на больших объемах выборок требование нормального распределения данных становится слабее (может быть это происходит из-за увеличения точности оценки? Но я не уверен). #Дисперсия между группами будет сравниваться при помощи теста Бартлетта. Если дисперсии будут значимо отличаться -- используем t-тест с поправкой Уэлча, если не будут -- то без него.#
+
+2) Категориальные переменные с двумя градациями и малым (меньше пяти) числом наблюдений хотя бы в одной из ячеек будут оценены точным критерием Фишера. Если же групп будет более двух, а число наблюдений во всех ячейках будет превышать пять, используем критерий хи-квадрат.
+
+```{r}
+# Количественные переменные
+
+num_cols <- cleaned_data %>% 
+  select(where(is.numeric)) %>% 
+  colnames
+
+num_comp_list <- lapply(num_cols, function(x) t.test(pull(cleaned_data[x]) ~ pull(cleaned_data["tenYearsCHDRisk"])))
+
+names(num_comp_list) <- num_cols
+
+```
+
+
+```{r}
+# Качественные переменные
+
+fac_names <- cleaned_data %>% 
+  select(where(is.factor) & !tenYearsCHDRisk) %>% 
+  colnames
+
+sapply(fac_names, function(x) length(table(pull(cleaned_data[x]))))
+```
+
+Оценим число значений в каждой категории переменной `education` (единственной переменной более чем с двумя градациями).
+
+```{r}
+print(table(subset(cleaned_data, tenYearsCHDRisk=="high_risk")$education))
+print(table(subset(cleaned_data, tenYearsCHDRisk=="small_risk")$education))
+```
+
+Выглядит так, что мы можем использовать хи-квадрат.
+
+```{r}
+chisq.test(cleaned_data$education, cleaned_data$tenYearsCHDRisk)
+```
+
+
+```{r}
+fac_names <- fac_names[! fac_names %in% "education"]
+
+fac_comp_res <- lapply(fac_names, function(x)
+       fisher.test(pull(cleaned_data[x]), pull(cleaned_data["tenYearsCHDRisk"])))
+
+names(fac_comp_res) <- fac_names
+
+fac_comp_res
+```
+
+
+# Далее идут **необязательные** дополнительные задания, которые могут принести вам дополнительные баллы в том числе в случае ошибок в предыдущих
+
+## Корреляционный анализ
+
+1) Создайте корреляционную матрицу с визуализацией и поправкой на множественные сравнения. Объясните, когда лучше использовать корреляционные матрицы и в чём минусы и плюсы корреляционных исследований.
+
+1) Уточню, что использовался коэффициент корреляции Спирмена, а не Пирсона, поскольку ранее было показано, что для многих количественных переменных распределение статзначимо отличается от нормального. Будем консервативными, и в качестве поправки на множественное сравнение используем поправку Бонферрони (я не обнаружил, как быстро задать факт поправки в визуализации, поэтому "поднял" уровень p-значения вручную). 
+
+Корреляционная матрица -- удобный способ, например, найти коллинеарные предикторы и не включать их в регрессионный анализ. Также это хороший подход, чтобы "посмотреть на данные" количественного типа и  подумать, что с ними делать дальше. Всякого рода огромные таблицы со спирменовскими (чаще всего) корреляциями используются для верификации моделей в контексте машинного обучения, но тут я разбираюсь плохо, поэтому, весьма возможно, что в текущем предложении сказал какую-то глупость.
+
+Проблема в том, что наличие корреляции часто воспринимают неправильно -- как причинно-следственную, а не статистическую связь (в этой связи уместно вспомнить анекдоты про аистов и рождаемость в Дании после Второй Мировой войны, а также про количество самоубийств в США и число фильмов, в которых Николас Кейдж снялся за год).
+
+Иная проблема в том, что корреляции часто могут искажаться конфаундерами, а при чрезмерно рьяной погоне за оными -- коллайдерами.
+
+```{r}
+correlations <- corr.test(cleaned_data %>% select(where(is.numeric)), method = "spearman", adjust = "bonferroni")
+cormatrix <- ggcorrplot(correlations$r, type = "lower", outline.col = "white", lab=TRUE, method = "circle", p.mat = correlations$p, sig.level = 0.05/(sum(1:length(cleaned_data %>% select(where(is.numeric)) %>% colnames))))
+cormatrix
+```
+
+## Моделирование  (недоделано, в планах завершить к жесткому дедлайну)
+
+1) Постройте регрессионную модель для переменной **TenYearCHD**. Опишите процесс построения
+
+
+
+1) Сначала уберем все NA в данных, и просто возьмем и положим в модель логистической регрессии (потому что у нас бинарный исход) все факторы.
+```{r}
+
+# cleaned_data_nna <- cleaned_data %>% na.omit()
+# model <- glm(tenYearsCHDRisk ~., family=binomial(link='logit'),data=cleaned_data_nna)
+# 
+# summary(model)
+```
+
+Если применять логику обычных линейных моделей, нам нужно исключить коллинеарные факторы. У нас таковыми являются систолическое и диастолическое АД. Удалим диастолическое АД (оно не является значимым предиктором).
+
+```{r}
+
+```
+
