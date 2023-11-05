@@ -1,0 +1,442 @@
+---
+title: "hw_1_Sotnikov_data_vis"
+author: "Bogdan Sotnikov"
+date: '2023-10-29'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, error = FALSE)
+
+options(scipen = 999)
+
+lapply(c("ggplot2", "readr", "psych", "glue", "tibble", "stats", "tidyr", "plotly", "ggbeeswarm", "stringr", "reshape", "RColorBrewer", "Hmisc", "purrr", "ggcorrplot", "ggpubr", "rstatix", "car", "dplyr"), require, character.only=TRUE)
+
+# Функция для построения гистограммы на заданной переменной
+histCreator <- function(df, x){
+  ggplot(df)+
+    geom_histogram(aes(x=pull(df[x])), 
+                   color="black", 
+                   fill="green", 
+                   bins = ceiling(log2(nrow(df)) + 1))+
+    labs(x = x,
+         y = "Частота",
+         title = glue("Рис. 1 Гистограмма распредления\nпеременной {x}"))+
+    theme_bw()+
+    theme(axis.text.y = element_text(size=16),
+        axis.title.x = element_text(size=19),
+        axis.title.y = element_text(size=19),
+        plot.title = element_text(size=20, hjust=0.5),
+        legend.title = element_text(size=21),
+        legend.text = element_text(size=18))
+}
+
+boxpCreator <- function(df, x, y){
+  ggplot(df)+
+    geom_boxplot(aes(x=pull(df[x]), y=pull(df[y]), fill=pull(df[x])), 
+                   color="black")+
+    labs(x = glue("Градации переменнной {x}"),
+         y = "Размер страховых выплат", # Хардкодинг, конечно, но текущую задачу решает
+         fill = x,
+         title = glue("Рис. 3 График размаха переменной {y}\nпо категориям переменной {x}"))+
+    theme_bw()+
+    theme(axis.text.y = element_text(size=16),
+        axis.title.x = element_text(size=19),
+        axis.title.y = element_text(size=19),
+        plot.title = element_text(size=20, hjust=0.5),
+        legend.title = element_text(size=21),
+        legend.text = element_text(size=18))
+}
+
+```
+
+# 1 Чтение и предобработка данных
+
+Подгружаем датасет
+
+```{r reading}
+insurance <- read_csv("./insurance_cost.csv")
+```
+
+Ради большего интереса переименуем его.
+
+```{r true_name}
+endurance <- insurance
+```
+
+![What endurance looks like](./endurance.jpg)
+
+Смотрим на переменные
+
+```{r}
+str(endurance)
+```
+
+```{r}
+summary(endurance)
+```
+
+Все выглядит пристойно.
+
+Оценим пропущенные значения.
+
+```{r nas}
+endurance %>% 
+  is.na() %>% 
+  sum()
+```
+
+Их нет, и это прекрасно.
+
+# EDA
+
+## 2 Строим гистограммы
+
+```{r histograms, fig.width=10, fig.height=5, message=FALSE, echo=FALSE}
+# Функция для массового создания гистограм в чанке setup
+endurance_hsits <- lapply(endurance %>% select(where(is.numeric)) %>% colnames, function(x) histCreator(endurance, x))
+endurance_hsits
+```
+
+1.  Распределение возраста можно было бы назвать равномерным, если бы не пики в районе 45-ти и 20-ти лет.
+2.  Распределение ИМТ имееет колоколообразную форму с пиков районе 30-ти. Хвост в стороне высоких значений несколько больше.
+3.  Распределение числа детей дискретное (логично!), убывающее на всем протяжении (были даже мысли перевести эту переменную в факторный вид, но я от них воздержался).
+4.  Распределение суммы страховых выплат асимметричное, резко скошенное влево (пик в области низких значений), с длинным хвостом, уходящим в сторону больших значений.
+
+## 3 Создаем график плотности
+
+В данных не было указано, в какой валюте осуществлялись страховые выплаты. Выберем в качестве валюты наиболее вероятный вариант -- монгольские тугрики.
+
+```{r density, fig.width=10, fig.height=5}
+charges_density <- ggplot(endurance)+
+  geom_density(aes(x=charges),
+               fill="white",
+               color="green",
+               alpha=0.9)+
+  theme_dark()+   # Помню, что обычно рекомендуют theme_bw(), но раз в задании рекомендация поиграть с темами -- пусть будет соответствовать названию датасета
+  geom_vline(aes(xintercept=mean(charges)),
+             color="red",
+             size=1.5,
+             linetype="dashed")+
+  geom_vline(aes(xintercept=median(charges)), 
+             color="blue",
+             size=1.5,
+             linetype="dashed")+
+ annotate(geom = "text", 
+          x = 40000, 
+          y = 0.00005, 
+          label = glue("Среднее для страховых выплат составляет\n{round(mean(endurance$charges),0)} монгольских тугриков"),
+          color = "red",
+          size=5)+
+   annotate(geom = "text", 
+          x = 40000, 
+          y = 0.00003, 
+          label = glue("Медиана для страховых выплат составляет\n{round(median(endurance$charges),0)} монгольских тугриков"),
+          color = "blue",
+          size=5)+
+  labs(x = "Страховые выплаты",
+         y = "Плотность вероятности",
+         title = "Рис. 2 График плотности вероятности\nстраховых выплат")+
+    theme(axis.text.y = element_text(size=16),
+        axis.title.x = element_text(size=19),
+        axis.title.y = element_text(size=19),
+        plot.title = element_text(size=20, hjust=0.5),
+        legend.title = element_text(size=21),
+        legend.text = element_text(size=18))
+charges_density  
+```
+
+## 4 Боксплоты
+
+```{r boxplots, fig.width=7, fig.height=5, message=FALSE}
+# Функция для массового создания боксплотов в чанке setup
+endurance_boxps <- lapply(endurance %>% select(where(is.character)) %>% colnames, function(x) boxpCreator(endurance, x, "charges"))
+endurance_boxps
+```
+
+## 5 Боксплоты и график плотности
+
+```{r densbox, fig.width=19, fig.height=12}
+boxplots <- ggarrange(endurance_boxps[[1]], 
+          endurance_boxps[[2]],
+          endurance_boxps[[3]],
+          ncol=3, nrow=1)
+combo_plot <- ggarrange(charges_density, boxplots,
+          ncol=1, nrow=2)
+annotate_figure(combo_plot, top = text_grob("Рис.4 Вероятность страховых выплат различного размера\nи распределение страховых выплат в зависимости от пола, курения и региона проживания\n",
+               color = "black", face = "italic", size = 25))
+```
+
+## 6 Фасет по регионам
+
+Базовый вариант
+
+```{r facet, fig.width=10, fig.height=15}
+charges_density+
+  facet_grid("region")+
+  labs(title = "Рис. 5 График плотности страховых выплат по регионам")
+```
+
+## 7 Скаттерплот 1 (Возраст)
+
+```{r scatterplot, fig.width=10, fig.height=7 }
+age_charges_scatter <- ggplot(endurance)+
+  geom_point(aes(age, charges), colour="violet")+
+  theme_bw()+
+    labs(x = "Возраст",
+         y = "Сумма страховки",
+         title = "Рис. 6 Диаграмма рассеяния\nвозраст-страховые выплаты")+
+    theme(axis.text.x = element_text(size=14),   # Как заказывали
+        axis.text.y = element_text(size=10),
+        axis.title.x = element_text(size=10), 
+        axis.title.y = element_text(size=10),
+        plot.title = element_text(size=20, hjust=0.5),
+        legend.title = element_text(size=21),
+        legend.text = element_text(size=18))
+age_charges_scatter
+```
+
+### 8 Линия тренда
+
+```{r trandline}
+age_charges_scatter+
+  geom_smooth(aes(x=age, y=charges), 
+              color = "green",
+              linewidth = 1.5,
+              method = lm,
+              se = FALSE)
+```
+
+### 9 Больше линий тренда!
+
+```{r}
+age_charges_scatter+
+  geom_point(aes(age, charges, colour=smoker))+
+  geom_smooth(aes(age, charges, linewidth=smoker, group=smoker), 
+              method=lm, 
+              se=FALSE)+
+  labs(colour="Курение",
+       size="Курение")
+```
+
+## 10 Скаттерплот 2 (ИМТ)
+
+```{r shashlyk_plot, message=FALSE}
+ggplot(endurance, aes(bmi, charges, colour=smoker))+
+  geom_point()+
+  geom_smooth(aes(group=smoker), 
+              method=lm, 
+              se=FALSE)+
+  theme_bw()+
+    labs(x = "bmi",
+         y = "Сумма страховки",
+         title = "Рис. 7 Диаграмма рассеяния\nИМТ-страховые выплаты",
+         colour="Курение")+
+    theme(axis.text.x = element_text(size=18),
+        axis.text.y = element_text(size=18),
+        axis.title.x = element_text(size=20), 
+        axis.title.y = element_text(size=20),
+        plot.title = element_text(size=20, hjust=0.5),
+        legend.title = element_text(size=21),
+        legend.text = element_text(size=18))
+```
+
+Я бы сказал, что график по форме напоминает два шашлыка на шампуре под углом 35 градусов друг к другу. Из литературных данных известно, что подобная shashlyk-shaped форма графика наглядно показывает, что курение, вероятно, намного сильнее взаимосвязано с суммой страховых расходов, чем индекс массы тела.
+
+# Вопросы к данным
+
+## 11 Вопрос №1.
+
+Вопрос не про страховку: отличается ли ИМТ *у имеющих одного ребенка некурящих* **мужчин и женщин**.
+
+### Визуализируем данные
+
+```{r q1, fig.width=10, fig.height=7}
+question1 <- endurance %>% 
+  filter(children == 1 & smoker == "no") %>% 
+  ggplot()+
+    geom_boxplot(aes(x=sex, y=bmi, fill=sex))+
+    theme_bw()+
+    labs(x = "Пол",
+         y = "ИМТ",
+         title = "Рис. 7 Распределение ИМТ по полу у некурящих\nлиц, имеющих одного ребенка",
+         fill = "Пол")+
+    theme(axis.text.x = element_text(size=18),
+        axis.text.y = element_text(size=18),
+        axis.title.x = element_text(size=20), 
+        axis.title.y = element_text(size=20),
+        plot.title = element_text(size=20, hjust=0.5),
+        legend.title = element_text(size=21),
+        legend.text = element_text(size=18))
+question1
+```
+
+Визуально кажется, что нет. Проверим.
+
+```{r}
+endurance %>% 
+  filter(children == 1 & smoker == "no") %>% 
+  group_by(sex) %>% 
+  do(broom::tidy(shapiro.test(.$bmi)))
+```
+
+Не можем отвергнуть нулевую гипотезу о том, что распределения ИМТ в целевых группах нормальны. Используем тест Стьюдента для проверки гипотезы о равенстве средних.
+
+```{r}
+stat.test <- endurance %>% 
+  filter(children == 1 & smoker == "no") %>% 
+  t.test(bmi ~ sex, data = .) #%>% 
+  #add_xy_position(x = "sex")
+stat.test
+```
+
+Нулевую гипотезу отвергнуть не можем. Средние по нашим данным не различаются.
+
+### Обоснование типа графика
+
+Имеем одну категориальную и одну непрерывную числовую переменную. Оптимальным способом отображения данных такого типа являются графики типов боксплот, ~~скрипкаграфик~~ вайолинплот и джиттерплот
+
+## 12 Вопрос №2.
+
+Как связаны между собой возраст, размер страховых выплат и ИМТ у курящих и некурящих мужчин?
+
+### Визуализируем данные
+
+```{r}
+plot_ly(
+  endurance %>% filter(sex == "male"),
+  x = ~ age,
+  y = ~ bmi,
+  z = ~ charges, 
+  size = 1,
+  color = ~ smoker,
+  colors = c("#FF0033", "#00CC00"),
+  alpha = 0.5,
+  width = 1.5,
+  height = 1.5
+) %>% 
+  layout(
+      title = "Распределение возраста, ИМТи размера выплаченной страховки\nу курящих и некурящих мужчин",
+      xaxis = list(title = "Возраст",
+                   zeroline = FALSE),
+      yaxis = list(title = "Индекс массы тела",
+                   zeroline = FALSE)
+  )
+```
+
+Вырисовываются три паралельные группы, в которых с увеличением возраста растет и сумма выплаченной страховки (как у курящих, так и у некурящих, причем у последних суммы были заметно ниже). В случае с индексом массы тела его увеличение приводило к увеличению страховки только у некурящих пациентов.
+
+### Обоснование типа графика
+
+Имеем три типа переменных. Посмотреть на их взаимное распределение удобно на диаграмме рассеяния (скаттерплоте). Ну а визуализация в плотли выбрана потому, что это забавно выглядит (этот пункт был выполнен до публикации второй домашки, а после передлывать как-то не пришлось по душе).
+
+## 13 Вопрос №3.
+
+Как предсказать размер страховки, исходя из имеющихся данных?
+
+Попробуем поиграть с линейной регрессией.
+
+```{r}
+# Стандартизуем количественные переменные
+endurance_scaled <- endurance %>% 
+  mutate(across(where(is.numeric), scale))
+# Построим модель
+charge_lm <- lm(charges ~ bmi + age + children + sex + smoker + region, data = endurance_scaled)
+summary(charge_lm)
+```
+
+Выглядит неплохо уже на текущем этапе -- `поправленный R-квадрат = 0.75`
+
+Поищем мультиколлинеарность в данных (вот здесь мы и применим визуализацию)
+
+### Визуализируем данные
+
+```{r}
+endurance_corr <- corr.test(endurance %>% select(where(is.numeric)& !charges), method="spearman")
+corr_plot <- ggcorrplot(endurance_corr$r, 
+                        type = "lower", 
+                        outline.col = "white", 
+                        lab=TRUE, 
+                        method = "circle", 
+                        p.mat = endurance_corr$p,
+                        title = "Скоррелированность количественных данных\nв датасете по страховке",
+                        legend.title = "Коэффициент\nкорреляции")
+corr_plot+
+  labs()
+```
+
+На первый взгляд коллинеарности нет. Проверим формальными тестами.
+
+```{r}
+vif(charge_lm)
+```
+
+Все действительно в порядке.
+
+Сделаем шаг backward selection:
+
+```{r}
+drop1(charge_lm, test = "F")
+```
+
+Удалим пол, как наименее значимый предиктор.
+
+```{r}
+charge_lm2 <- update(charge_lm, .~. - sex)
+drop1(charge_lm2, test = "F")
+```
+
+Еще шаг. Теперь удаляем регион.
+
+```{r}
+charge_lm3 <- update(charge_lm2, .~. - region)
+drop1(charge_lm3, test = "F")
+```
+
+```{r}
+summary(charge_lm3)
+```
+
+Наш R-квадрат почти не изменился, зато теперь нам достаточно четырех переменных вместо шести (что весьма важно -- мы исключили достаточно трудно интерпретируемую в рамках линейной регрессию переменную `region`).
+
+### Обоснование типа графика
+
+Коррплот сделан как раз для того, чтобы искать скоррелированные переменные. В нашем случае его наглядность может несколько страдать из-за малого количества числовых переменных, одако, когда у нас 10-15 оных, коррплоты могут очень облегчить поиск коллинеарных переменных.
+
+# 14 Воспроизведение графика
+
+## ВАЖНО
+
+У целевого графика есть расхождения с подписями. Если делать его с разбиением на группы в соответствии с легендой, то точек на скаттерплоте меньше, чем на целевом. Если же сбросить нижнюю границу возраста в первой группе (что приведет к включению лиц в возрасте 18-20 лет в группу `21-34`), график принимает необходимый вид. Поскольку целью задания является именно построение идентичного графика, я занулил нижнюю границу в первой возрастной группе.
+
+## График
+
+```{r, fig.width=12, fig.height=7}
+endurance %>% 
+  mutate(age_group=as.factor(case_when(
+    age < 35 ~ "age: 21-34",
+    age >= 35 & age < 50 ~ "age: 35-49",
+    age >= 50 ~ "age: 50+"
+  ))) %>% 
+  na.omit() %>% 
+  ggplot(aes(x=bmi, y=log(charges)))+
+    geom_point(color = "#330066", alpha = 0.5, size=2)+
+    facet_grid(cols=vars(age_group))+
+    geom_smooth(aes(colour=age_group), method=lm)+
+  theme_minimal()+
+  labs(title="Отношение индекса массы тела к логарифму трат по возрастным группам")+
+  theme(
+    axis.text.x = element_text(size=16),
+    axis.text.y = element_text(size=16),
+    axis.title.x = element_text(size=19), 
+    axis.title.y = element_text(size=19),
+    plot.title = element_text(size=23, hjust=5),
+    legend.title = element_text(size=19),
+    legend.text = element_text(size=16),
+    legend.position = "bottom",
+    legend.key.size = unit(1.5, "line"),
+    strip.text.x = element_text(size=16)
+  )
+```
+
+![Смею тешить себя надеждой, что](./plot.jpg)
