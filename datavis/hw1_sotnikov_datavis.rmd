@@ -92,7 +92,7 @@ endurance %>%
 
 ## 2 Строим гистограммы
 
-```{r histograms, fig.width=10, fig.height=5, message=FALSE, echo=FALSE}
+```{r histograms, fig.width=10, fig.height=5, message=FALSE}
 # Функция для массового создания гистограм в чанке setup
 endurance_hsits <- lapply(endurance %>% select(where(is.numeric)) %>% colnames, function(x) histCreator(endurance, x))
 endurance_hsits
