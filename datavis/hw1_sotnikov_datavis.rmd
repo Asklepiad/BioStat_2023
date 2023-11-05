@@ -2,7 +2,11 @@
 title: "hw_1_Sotnikov_data_vis"
 author: "Bogdan Sotnikov"
 date: '2023-10-29'
-output: html_document
+output:
+  html_document:
+    toc: TRUE
+    theme:
+      bootswatch: flatly
 ---
 
 ```{r setup, include=FALSE}
@@ -92,7 +96,7 @@ endurance %>%
 
 ## 2 Строим гистограммы
 
-```{r histograms, fig.width=10, fig.height=5, message=FALSE}
+```{r histograms, fig.width=10, fig.height=5, message=FALSE, results='hide'}
 # Функция для массового создания гистограм в чанке setup
 endurance_hsits <- lapply(endurance %>% select(where(is.numeric)) %>% colnames, function(x) histCreator(endurance, x))
 endurance_hsits
@@ -148,7 +152,7 @@ charges_density
 
 ## 4 Боксплоты
 
-```{r boxplots, fig.width=7, fig.height=5, message=FALSE}
+```{r boxplots, fig.width=7, fig.height=5, message=FALSE, results='hide'}
 # Функция для массового создания боксплотов в чанке setup
 endurance_boxps <- lapply(endurance %>% select(where(is.character)) %>% colnames, function(x) boxpCreator(endurance, x, "charges"))
 endurance_boxps
@@ -198,7 +202,7 @@ age_charges_scatter
 
 ### 8 Линия тренда
 
-```{r trandline}
+```{r trandline, results='hide', message=FALSE}
 age_charges_scatter+
   geom_smooth(aes(x=age, y=charges), 
               color = "green",
@@ -209,7 +213,7 @@ age_charges_scatter+
 
 ### 9 Больше линий тренда!
 
-```{r}
+```{r results='hide', message=FALSE}
 age_charges_scatter+
   geom_point(aes(age, charges, colour=smoker))+
   geom_smooth(aes(age, charges, linewidth=smoker, group=smoker), 
@@ -302,7 +306,7 @@ stat.test
 
 ### Визуализируем данные
 
-```{r}
+```{r message=FALSE}
 plot_ly(
   endurance %>% filter(sex == "male"),
   x = ~ age,
@@ -411,7 +415,7 @@ summary(charge_lm3)
 
 ## График
 
-```{r, fig.width=12, fig.height=7}
+```{r, fig.width=12, fig.height=7, message=FALSE, results='hide'}
 endurance %>% 
   mutate(age_group=as.factor(case_when(
     age < 35 ~ "age: 21-34",
