@@ -1,0 +1,216 @@
+---
+title: "ADAE"
+author: "Bogdan Sotnikov"
+date: '2023-11-06'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Подгрузка пакетов
+lapply(c("tidyverse", "openxlsx", "readxl", "glue"), require, character.only=TRUE)
+
+# Функция-переводчик SOC
+soct_translator <- function(x){
+  meddra %>% 
+  filter(SOC == x) %>% 
+  select(SOCT) %>% 
+  pull %>% 
+  unique
+}
+
+# Функция-переводчик PT
+ptt_translator <- function(x){
+  meddra %>% 
+  filter(PT == x) %>% 
+  select(PTT) %>% 
+  pull %>% 
+  unique
+}
+```
+
+# Загрузка данных
+
+```{r}
+files_ <- list.files(path = "./sdtm-like files/", pattern = NULL, all.files = FALSE, full.names = FALSE)
+
+ADSL <- read.xlsx("ADSL.xlsx", na.strings = NA)
+
+AE <- read.xlsx("./sdtm-like files/AE_ADVERSEEVENTS.xlsx", na.strings = NA)
+
+meddra <- read.xlsx("./sdtm-like files/terms_translation.xlsx", na.strings = NA)
+```
+
+# Процессинг файла ADVERSEEVENTS
+
+```{r}
+# Отбираем нужные колонки из ADSL
+
+ADSL_clear <- ADSL %>% 
+  select(
+    STUDYID, SUBJID, USUBJID, SITEID, TRTSEQP,
+    TRTSEQPN, AP01SDT, AP01EDT, AP02SDT, AP02EDT, TRT01P, TRT01PN, TRT02P, TRT02PN, SAFFL, AGE, SEX, WEIGHT = WEIGHTBL, RACE
+  )
+```
+
+
+```{r}
+# Страшный спагетти-чанк с оформлением большей части колонок AE
+AE_clear <- AE %>% 
+  select(STUDYID, SUBJID, AESEQ, AETERM, AEDECOD, AESTDTC, AEENDTC, 
+         AEENRTPT, AESER, AESEV, AEREL, AEACN, 
+         AECONTRT, AEBODSYS) %>%
+  mutate(
+    AESEQ = as.numeric(AESEQ),
+    ASTDT = format(as.Date(AESTDTC, "%Y-%m-%d"), "%d.%m.%Y"),
+    AENDT = format(as.Date(AEENDTC, "%Y-%m-%d"), "%d.%m.%Y"),
+    AEENRF = if_else(AEENRTPT == "ONGOING",
+                     "ONGOING", ""),
+    AESER = case_when(
+      AESER == "Да" ~ "Y",
+      AESER == "Нет" ~ "N"
+    ),
+    AECMFL = if_else(AECONTRT == "Да", "Y", "N"),
+    ADURU = "День",
+    AEBODSYS = glue("{AEBODSYS} ({str_squish(sapply(AEBODSYS, soct_translator))})"),
+    AEDECOD = glue("{AEDECOD} ({str_squish(sapply(AEDECOD, ptt_translator))})"),
+    ASTDTF = case_when(
+      ASTDT == NA | ASTDT %>% str_split_i("\\.", 1) == "" ~ "Y",
+      ASTDT %>% str_split_i("\\.", 2) == "" ~ "M",
+      ASTDT %>% str_split_i("\\.", 3) == "" ~ "D"
+    ),
+    AENDTF = case_when(
+      AENDT == NA | AENDT %>% str_split_i("\\.", 1) == "" ~ "Y",
+      AENDT %>% str_split_i("\\.", 2) == "" ~ "M",
+      AENDT %>% str_split_i("\\.", 3) == "" ~ "D"
+    ),
+    ADURN = as.numeric(as.Date(ASTDT, "%d.%m.%Y") - as.Date(AENDT, "%d.%m.%Y") + 1), 
+    ASEV = case_when(
+      AESEV == "Легкое" ~ "Легкая",
+      AESEV == "Среднее" ~ "Средняя",
+      AESEV == "Тяжелое" ~ "Тяжелая"
+    ),
+    ASEVN = case_when(
+      AESEV == "Легкое" ~ 1,
+      AESEV == "Среднее" ~ 2,
+      AESEV == "Тяжелое" ~ 3
+    ),
+    AERELN = case_when(
+      AEREL == 'Определенная' ~ 1,
+      AEREL == 'Вероятная' ~ 2,
+      AEREL == 'Возможная' ~ 3,
+      AEREL == 'Сомнительная' ~ 4,
+      AEREL == 'Условная' ~ 5,
+      AEREL == 'Не классифицируемая' ~ 6,
+      AEREL == 'Не связано' ~ 7
+    ),
+    RELGR1 = case_when(
+      AEREL %in% c('Определенная', 'Вероятная',
+                      'Возможная', 'Сомнительная',
+                      'Условная') ~ 'Связано',
+      AEREL == NA | AEREL == "Не классифицируемая" ~ NA,
+      AEREL == 'Не связано' ~ 'Не связано' 
+    ),
+    RELGR1N = case_when(
+      RELGR1 == 'Не связано' ~ 0,
+      RELGR1 == 'Связано' ~ 1,
+      RELGR1 == 'NA' ~ 2
+    ),
+    AEACN = case_when(
+      AEACN == "Без изменений" ~ "Без изменений",
+      AEACN == "Доза снижена" ~ "Доза снижена",
+      AEACN == "Временно прекращен прием препарата" ~ "Временно прекращен прием препарата", 
+      AEACN == "Прекращен прием препарата" ~ "Прекращен прием препарата",
+      AEACN == "Не применимо" ~ "Неприменимо",
+      AEACN == "Не известно" ~ "Неизвестно"
+    ),
+    AERES = case_when(
+      AEACN == "Выздоровление без осложнений" ~ "Выздоровление без осложнений", 
+      AEACN == "Стадия выздоровления" ~ "Стадия выздоровления", 
+      AEACN == "Без изменений" ~ "Без изменений", 
+      AEACN == "Выздоровление с осложнениями" ~ "Выздоровление с осложнениями", 
+      AEACN == "Смерть" ~ "Смерть", 
+      AEACN == "Неизвестно" ~ "Неизвестно"
+    ),
+    AERESN = case_when(
+      AERES == 'Выздоровление без осложнений' ~ 1,
+      AERES == 'Стадия выздоровления' ~ 2,
+      AERES == 'Без изменений' ~ 3,
+      AERES == 'Выздоровление с осложнениями' ~ 4,
+      AERES == 'Смерть' ~ 5,
+      AERES == 'Неизвестно' ~ 6
+    )
+  )
+```
+
+```{r}
+# Собираем прототип ADAE
+
+pre_ADAE <- left_join(ADSL_clear, AE_clear, by=c("STUDYID", "SUBJID"))
+
+
+(as.Date(pre_ADAE$AESTDTC, format = "%Y-%m-%d") >= as.Date(pre_ADAE$AP01SDT, format = "%d.%m.%Y")) & (as.Date(pre_ADAE$AESTDTC, format = "%Y-%m-%d") <= as.Date(pre_ADAE$AP01EDT, format = "%d.%m.%Y"))
+
+
+pre_ADAE <- pre_ADAE %>% 
+  mutate(APERIOD = case_when(
+    ((as.Date(AESTDTC, format = "%Y-%m-%d") >= as.Date(AP01SDT, format = "%d.%m.%Y")) & (as.Date(AESTDTC, format = "%Y-%m-%d") <= as.Date(AP01EDT, format = "%d.%m.%Y"))) ~ 1,
+    ((as.Date(AESTDTC, format = "%Y-%m-%d") >= as.Date(AP02SDT, format = "%d.%m.%Y")) & (as.Date(AESTDTC, format = "%Y-%m-%d") <= as.Date(AP02EDT, format = "%d.%m.%Y"))) ~ 2
+    ),
+    APERIODC = case_when(
+      APERIOD == 1 ~ 'Период 1',
+      APERIOD == 2 ~ 'Период 2'
+    ),
+    TRTEMFL = case_when(
+      ((ASTDT >= AP01SDT) & (ASTDT <=  AP01EDT)) | ((ASTDT >= AP02SDT) & (ASTDT <=  AP02EDT)) ~ "Y"
+    ),
+    PREFL = if_else(ASTDT < AP01SDT, "Y", ""),
+    TRTP = case_when(
+      APERIOD == 1 ~ TRT01P,
+      APERIOD == 2 ~ TRT02P
+    ),
+    TRTPN = case_when(
+      APERIOD == 1 ~ TRT01PN,
+      APERIOD == 2 ~ TRT02PN
+    ),
+    APHASE = case_when(
+      PREFL == 'Y' ~ 'Скрининг',
+      TRTEMFL == 'Y' ~ 'Лечение'
+    )
+  )
+```
+
+```{r}
+# Придадим колонкам нормальный порядок
+
+ADAE <- pre_ADAE %>% 
+  select(STUDYID, SUBJID, USUBJID, SITEID, TRTSEQP,
+         TRTSEQPN, AP01SDT, AP01EDT, AP02SDT, AP02EDT,
+         APERIOD, APERIODC, TRTEMFL, PREFL, TRTP,
+         TRTPN, AESEQ, AETERM, AEBODSYS, AEDECOD,
+         AESTDTC, ASTDT, ASTDTF, AEENDTC, AENDT,
+         AENDTF, AEENRTPT, AEENRF, ADURN, ADURU,
+         AESER, APHASE, ASEV, ASEVN, AEREL, AERELN,
+         RELGR1, RELGR1N, AEACN, AERES, AERESN,
+         AECMFL, SAFFL, AGE, SEX, WEIGHT, RACE
+)
+```
+
+```{r}
+# Удостоверимся, что все колонки имеют нужный тип
+str(ADAE)
+```
+
+Рискну предположить, что поелику один из субъектов не демонстрировал побочных явлений, нам он не интересен. Уберем его из исследования.
+
+```{r}
+ADAE <- ADAE %>% 
+  filter(is.na(AETERM) == FALSE)
+```
+
+```{r}
+# Ut desint vires, tamen est laudanda voluntas
+write.xlsx(ADAE, "./ADAE.xlsx")
+```
+
