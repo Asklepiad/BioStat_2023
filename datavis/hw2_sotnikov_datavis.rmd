@@ -1,0 +1,242 @@
+---
+title: "hw2_sotnikov_datavis"
+author: "Bogdan Sotnikov"
+date: '2023-11-12'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+lapply(c("ggplot2", "readr", "psych", "glue", "tibble", "stats", "tidyr", "plotly", "ggbeeswarm", "stringr", "reshape", "RColorBrewer", "Hmisc", "purrr", "ggcorrplot", "ggpubr", "rstatix", "car", "dplyr", "factoextra", "pheatmap", "FactoMineR", "ggbiplot", "ggfortify"), require, character.only=TRUE)
+options(scipen = 999)
+```
+
+# 1 Чтение и предобработка данных
+
+Подгружаем датасет
+
+```{r}
+led <- read_rds("./life_expectancy_data.RDS")
+```
+
+Смотрим на переменные
+
+```{r}
+str(led)
+```
+
+```{r}
+summary(led)
+```
+
+Все выглядит пристойно.
+
+Оценим пропущенные значения.
+
+```{r nas}
+led %>% 
+  is.na() %>% 
+  sum()
+```
+
+Их нет, и это прекрасно.
+
+# EDA
+
+### 2
+
+```{r}
+led %>% 
+  select(where(is.numeric))
+```
+
+```{r fig.width=15, fig.height=9}
+plot_ly(
+  led,
+  x = ~ `Tuberculosis Incidence`,
+  y = ~ `Sucide Rate`,
+  size = 1,
+  color = ~ continent,
+  colors = c("#DF536B", "#61D04F", "#2297E6", "#28E2E5", "#CD0BBC"),
+  alpha = 0.5,
+  width = 1.5,
+  height = 1.5
+) %>% 
+  layout(
+      title = "Распределение частоты самоубийств в зависимости от\nвстречаемости туберкулеза у жителей различных континентов",
+      xaxis = list(title = "Встречаемость туберкулеза",
+                   zeroline = FALSE),
+      yaxis = list(title = "Частота самоубийств",
+                   zeroline = FALSE)
+  )
+```
+
+## Анализ данных
+
+### 3
+
+Проверим, различаются ли средняя ожидаемая продолжительность жизни в странах Африки и Америки.
+
+Для сравнения применим t-тест Стьюдента. Чтобы понять, необходимо ли нам применять тест Уэлча, оценим равенство дисперсий.
+
+```{r}
+leveneTest(`Life expectancy` ~ continent, data = led %>% filter(continent %in% c("Africa", "Americas")))
+```
+
+Дисперсии негомогенны. Применим t-тест с поправкой Уэлча (t-тест по умолчанию в R)
+
+```{r}
+for_vis_tt <- t_test(`Life expectancy` ~ continent, data = led %>% filter(continent %in% c("Africa", "Americas"))) %>% 
+  add_xy_position(x = "continent")
+```
+
+И визуализируем его:
+
+```{r fig.width=15, fig.height=8}
+led %>% filter(continent %in% c("Africa", "Americas")) %>% 
+ggplot(aes(x=continent, y = `Life expectancy`))+
+  geom_boxplot(fill="green")+
+  labs(
+    x = "Континент",
+    y = "Ожидаемая\nпродолжительность жизни",
+    title = "Распределение ожидаемой продолжительности жизни\nв странах Африки и Америки"
+  )+
+  theme(
+    axis.text.x = element_text(size=16),
+    axis.text.y = element_text(size=16),
+    axis.title.x = element_text(size=19), 
+    axis.title.y = element_text(size=19),
+    plot.title = element_text(size=23, hjust=5),
+    legend.title = element_text(size=19),
+    legend.text = element_text(size=16),
+    legend.position = "bottom",
+    legend.key.size = unit(1.5, "line"),
+    strip.text.x = element_text(size=16)
+  )+
+  stat_pvalue_manual(for_vis_tt, tip.length = 0)
+```
+
+### 4
+
+```{r}
+led_num <- led %>% 
+  select(where(is.numeric) & !Year)
+
+# Шкалируем
+led_num_scaled <- scale(led_num)
+
+autoplot(led_num_scaled)
+```
+
+Читается этот хитмэп не очень хорошо. Попробуем сделать корплот
+
+```{r fig.height=15, fig.width=15}
+
+
+# Спирменовская корреляция -- потому что мы не проверяли распределение данных, а наверняка там найдется что-то ненормально-нелинейное
+led_num_corr <- corr.test(led_num , method="spearman")
+corr_plot <- ggcorrplot(led_num_corr$r, 
+                        type = "lower", 
+                        outline.col = "white", 
+                        lab=TRUE, 
+                        method = "circle", 
+                        p.mat = led_num_corr$p,
+                        title = "Скоррелированность количественных данных\nв датасете по ожидаемой продолжительности жизни",
+                        legend.title = "Коэффициент\nкорреляции")
+corr_plot
+```
+
+### 5
+
+```{r}
+# Делаем матрицу дистанций
+led_num_dist <- dist(led_num_scaled, 
+                        method = "euclidean")
+led_num_hc <- hclust(d = led_num_dist, 
+                        method = "ward.D2")
+fviz_dend(led_num_hc, 
+          cex = 0.1)
+```
+
+### 6
+
+```{r fig.width=15, fig.height=9}
+pheatmap(led_num_scaled, 
+         show_rownames = FALSE, 
+         clustering_distance_rows = led_num_dist,
+         clustering_method = "ward.D2", 
+         cutree_rows = 5,
+         cutree_cols = length(colnames(led_num_scaled)),
+         angle_col = 45, 
+         main = "Dendrograms for clustering rows and columns with heatmap")
+```
+
+Мы наблюдаем следующие 2 группы скоррелированных переменных: 1) наличие иммунизации от кори, гепатита B и АКДС 2) экономические метрики: ВВП и ВНД
+
+И 2 группы менее скоррелированных: 1) Безработица, встречаемость туберкулеза, лечение туберкулеза, смертность в ДТП, детская смертность и доля сельского населения. 2) Частота самоубийств, количество больничных коек (*страшная вырисовывается корреляция*), базовые санитарарные услуги, продолжительность жизни, доля городского населения, подушевой доход.
+
+В данных мы можем выделить 4 субкластера, один из которых чрезвычайно мал (второй сверху на вертикальной дендрограмме).
+
+### 7
+
+```{r}
+led_full.pca <- prcomp(led_num_scaled) # Это уже отшкалированные данные, дополнительно не шкалируем
+
+summary(led_full.pca)
+```
+
+Первые 6 компонент объясняют 80% вариации. Неидеально, но приемлемо. Посмотрим на соответствующий график.
+
+```{r}
+fviz_eig(led_full.pca, addlabels = T, ylim = c(0, 40))
+```
+
+Посмотрим на переменные
+
+```{r}
+fviz_pca_var(led_full.pca, col.var = "contrib")
+```
+
+Заметим, что все так же выделяется группа иммунизации, и две группы "слабо скоррелированных" переменных с фитмэпа.
+
+```{r}
+fviz_pca_var(led_full.pca, 
+             select.var = list(contrib = 5),
+             col.var = "contrib")
+```
+
+5 переменных, вносящих наибольший вклад в данные -- все те же три переменные о проценте иммунизации, продолжительность жизни и младенческая смертность.
+
+Посмотрим, кто вкладывается в избранные 6 главных компонент
+
+```{r}
+fviz_contrib(led_full.pca, choice = "var", axes = 1, top = 24) # 1
+fviz_contrib(led_full.pca, choice = "var", axes = 2, top = 24) # 2
+fviz_contrib(led_full.pca, choice = "var", axes = 3, top = 24) # 3
+fviz_contrib(led_full.pca, choice = "var", axes = 4, top = 24) # 4
+fviz_contrib(led_full.pca, choice = "var", axes = 5, top = 24) # 5
+fviz_contrib(led_full.pca, choice = "var", axes = 6, top = 24) # 6
+```
+
+В первую наибольший вклад вносят продолжительность жизни, младенческая смертность, санусловия и соблюдение гигиены и правил приготовления пищи.
+
+Во вторую -- переменные вакцинации.
+
+В третью -- подавляющий вклад со стороны экономических показателей.
+
+В четвертую -- частота самоубийств.
+
+В пятую основной вклад вносит безработица.
+
+В шестую -- она же, плюс сопутствующие факторы.
+
+### 8
+Построим би~~-2~~плот
+
+
+```{r fig.width=12, fig.height=12}
+ggbiplot::ggbiplot(led_full.pca, 
+         scale=0, 
+         alpha = 0.5) + 
+  theme_minimal()
+```
