@@ -1,0 +1,120 @@
+---
+title: "Soccer_Sotnikov_HW_1"
+author: "Bogdan Sotnikov"
+date: '2023-11-24'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+lapply(c("tidyverse", "glue"), require, character.only=TRUE)
+```
+
+## Чтение данных
+
+```{r}
+football <- read_csv2("./soccer.csv")
+#head(football)
+```
+
+## Технические моменты
+
+Мы предполагаем, что позиция и национальность имеют не очень много градаций (не больше 20-ти). Если это окажется правдой, приведем эти переменные к факторному типу.
+
+```{r}
+str(football)
+```
+
+```{r}
+glue("В датасете {football$Position %>%  unique %>% length} вида позиций на поле")
+glue("В датасете представлены футболисты {football$Nationality %>%  unique %>% length} различных национальностей")
+```
+
+Приведем позицию в факторный вид.
+
+```{r}
+summary(football)
+```
+
+Все выглядит хорошо: у нас нет 250-летних футболистов ростом 18 см, весящих 250 кг. Некоторое количество NA в данных о возрасте не должны нам помешать, поскольку изучение возраста не является нашей целью.
+
+```{r}
+football <- football %>% 
+  mutate(Position = factor(Position, levels = c("Goalkeeper", "Defender", "Forward", "Midfielder")))
+```
+
+## Множественные сравнения
+
+Цель исследования -- определить, отличаются ли по росту игроки на разных позициях.
+
+### Вычисление ДИ
+
+Без поправок
+```{r}
+ci_simple <- football %>% 
+  rstatix::pairwise_t_test(Height~Position, detailed = TRUE, pool.sd = FALSE) %>% 
+  mutate(comparison = paste(group1, group2, sep="_") %>% as.factor(),
+         conf_low_simple = conf.low %>% round(2),
+         conf_high_simple = conf.high %>% round(2),
+         estimate = estimate %>% round(2)) %>% 
+  select(comparison, starts_with("conf_"), estimate)
+```
+
+С поправкой Бонферрони
+```{r}
+ci_bonfer <- football %>% 
+  rstatix::pairwise_t_test(Height~Position, detailed = TRUE, pool.sd = FALSE, conf.level = 1 - (0.05/6)) %>% 
+  mutate(comparison = paste(group1, group2, sep="_") %>% as.factor(),
+         conf_low_bonfer = conf.low %>% round(2),
+         conf_high_bonfer = conf.high %>% round(2),
+         estimate = estimate %>% round(2)) %>% 
+  select(comparison, starts_with("conf"), estimate)
+ci_all <- left_join(ci_simple, ci_bonfer, by=c("comparison", "estimate"))
+```
+
+
+Визуализация
+```{r fig.width=10, fig.height=6}
+ggplot()+
+  geom_errorbar(data=ci_all, aes(x=comparison,ymin=conf_low_simple, ymax=conf_high_simple), color="green", linewidth=0.7, width=0.3, alpha=0.5)+
+  geom_errorbar(data=ci_all, aes(x=comparison,ymin=conf_low_bonfer, ymax=conf_high_bonfer), color="red", linewidth=0.7, width=0.3, alpha=0.5)+
+  geom_point(data=ci_all, aes(x=comparison, y=estimate))+
+  labs(x = "Пары сравниваемых позиций",
+       y = "Разница в росте (см)",
+       title = "Разница в росте у футболистов\nвыступающих на различных позициях")+
+  theme_bw()+
+  theme(axis.text.x = element_text(size=12, angle = 10),
+        axis.text.y = element_text(size=12),
+        axis.title.x = element_text(size=19),
+        axis.title.y = element_text(size=19),
+        plot.title = element_text(size=20, hjust=0.5),
+        legend.title = element_text(size=21),
+        legend.text = element_text(size=18))
+```
+
+
+Возможно, я не вполне верно понял задание, однако, при том подходе, который применил я, доверительные интервалы *всегда* будут покрывать разницу между выборочными средними. Здесь стоит оговориться, что у меня нет общепопуляционных  данных о росте футболистов, и определить, покрывает ли доверительный интервал истинное среднее у меня нет возможности. Можно лишь предположить, что интервал, вычисленный без поправки не накрывает хотя бы одну из разниц в $5-22.5%$ (на самом деле, это *интервал для интервала* несколько уже, поскольку как минимум одно из сравнений не является независимым, а остальные могут быть скоррелированы). В случае же поправки Бонферрони хотя бы один из интервалов не накрывает истинное среднее в 5% случаев или реже.
+
+### Тестирование гипотез
+
+
+```{r}
+without_corr <- football %>% 
+  rstatix::pairwise_t_test(Height~Position, detailed = TRUE, pool.sd = FALSE) %>% 
+  filter(p < 0.05) %>% nrow
+
+with_holm <- football %>% 
+  rstatix::pairwise_t_test(Height~Position, detailed = TRUE, pool.sd = FALSE, p.adjust.method = "holm") %>% 
+  filter(p < 0.05) %>% nrow
+
+with_bh <- football %>% 
+  rstatix::pairwise_t_test(Height~Position, detailed = TRUE, pool.sd = FALSE, p.adjust.method = "BH") %>% 
+  filter(p < 0.05) %>% nrow
+
+glue("Без поправок мы получили {without_corr} открытий из 6-ти возможных;
+с поправкой Холма мы получили {with_holm} открытий из 6-ти возможных; 
+с поправкой Бенджамини-Хохберга мы получили {with_bh} открытий из 6-ти возможных")
+```
+
+Кажется, что и размер выборки, и реальная разница в росте между большинством позиций достаточно велики, что и консервативные, и либеральные поправки демонстрируют схожие результаты. Либо я что-то фундаментально не понял.
