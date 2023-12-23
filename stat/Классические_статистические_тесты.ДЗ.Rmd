@@ -139,17 +139,38 @@ test_df_100 <- test_df_100 %>%
   count(cardio) %>% 
   pivot_wider(names_from = cardio, values_from = n) %>% 
   tibble::column_to_rownames("activity")
-chi_100 <- chisq.test(test_df_100, correct = FALSE)
+
+test_df_100_m <- matrix(c(
+sum(test_df_100$healthy)*sum(test_df_100["active",])/sum(test_df_100),
+sum(test_df_100$healthy)*sum(test_df_100["passive",])/sum(test_df_100),
+sum(test_df_100$ill)*sum(test_df_100["active",])/sum(test_df_100),
+sum(test_df_100$ill)*sum(test_df_100["passive",])/sum(test_df_100)
+), nrow=2)
+
+chi_100 <- sum((test_df_100 - test_df_100_m)**2 / test_df_100_m)
+
+#chi_100 <- chisq.test(test_df_100, correct = FALSE)
+
+
 
 test_df_30 <- test_df_30 %>% 
   group_by(activity) %>% 
   count(cardio) %>% 
   pivot_wider(names_from = cardio, values_from = n) %>% 
   tibble::column_to_rownames("activity")
-chi_30 <- chisq.test(test_df_30, correct = TRUE)
+test_df_30_m <- matrix(c(
+sum(test_df_30$healthy)*sum(test_df_30["active",])/sum(test_df_30),
+sum(test_df_30$healthy)*sum(test_df_30["passive",])/sum(test_df_30),
+sum(test_df_30$ill)*sum(test_df_30["active",])/sum(test_df_30),
+sum(test_df_30$ill)*sum(test_df_30["passive",])/sum(test_df_30)
+), nrow=2)
 
-glue("Значение статистики X2 для 100 наблюдений равно {chi_100$statistic %>% round(2)} (p-уровень значимости равен {chi_100$p.value %>% round(2)}, число степеней свободы -- 1)\n\
-Значение статистики X2 для 30 наблюдений равно {chi_30$statistic %>% round(2)} (p-уровень значимости равен {chi_30$p.value %>% round(2)}, число степеней свободы -- 1)")
+chi_30 <- sum((abs(test_df_30 - test_df_30_m) - 0.5)**2 / test_df_30_m) # Поправка Йейтса
+
+#chi_30 <- chisq.test(test_df_30, correct = TRUE)
+
+glue("Значение статистики X2 для 100 наблюдений равно {chi_100 %>% round(2)} (p-уровень значимости равен {chisq.test(test_df_100, correct = FALSE)$p.value %>% round(2)}, число степеней свободы -- 1)\n\
+Значение статистики X2 для 30 наблюдений равно {chi_30 %>% round(2)} (p-уровень значимости равен {chisq.test(test_df_30, correct = TRUE)$p.value %>% round(2)}, число степеней свободы -- 1)")
 ```
 
 ### Оценка статзначимости/ДИ
@@ -158,16 +179,16 @@ p-уровень значимости больше установленного 
 
 ```{r}
 chi_base+
-  geom_vline(xintercept = chi_100$statistic, color = "green", linetype="dashed")
+  geom_vline(xintercept = chi_100, color = "green", linetype="dashed")
 
 chi_base+
-  geom_vline(xintercept = chi_30$statistic, color = "green", linetype="dashed")
+  geom_vline(xintercept = chi_30, color = "green", linetype="dashed")
 ```
 
 
 ### Оценка практической значимости
 
-Несмотря на существующие в действительности различия, тесту хи-квадрат недостает мощности, чтобы их выявить.
+Несмотря на существующую в действительности ассоциацию, тесту хи-квадрат недостает мощности, чтобы их выявить.
 
 # Гипотеза 2. Применение нового метода лечения для пациентов с артериальной гипертензией приведет к уменьшению среднего артериального давления по сравнению с пациентами, получающими стандартное лечение.
 
@@ -222,16 +243,25 @@ glue("Критическим значением статистики в наше
 ## Наблюдаемое значение статистики
 ```{r}
 # t.test(group1, group2, alternative = "less")
-
-
+t_2 <- (mean(group1) - mean(group2)) / sqrt((sd_x**2)/sample_size + (sd_y**2)/sample_size)
+glue("Наблюдаемое значение статистики -- {t_2 %>% round(2)}, что меньше критического значения.")
 ```
-
-Наблюдаем, что значение статистики равно -2.08, что меньше критического значения (p=0.019). Любопытно, что вычисленное внутри теста значение статистики Уэлча отличается от нашего.
 
 ## Оценка статзначимости/ДИ
 Наблюдаем статистически значимые различия при заданной нами альфе.
 
+```{r}
+glue("P-value = {t.test(group1, group2, alternative = 'less')$p.value %>% round(2)}")
+```
+
+
 ## Оценка практической значимости
+
+```{r}
+
+glue("Величина эффекта: {((mean(group2) - mean(group1)) %>% round(2))} мм.рт.ст.")
+```
+
 Различия в приблизительно 4 ед мм.рт.ст не выглядят клинически значимыми. Мы детектируем эффект благодаря достаточно большой выборке и нормальности исходных распределений.
 
 
